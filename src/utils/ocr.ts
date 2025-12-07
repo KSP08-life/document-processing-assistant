@@ -6,11 +6,15 @@ export async function runOCR(
 ) {
   const result = await Tesseract.recognize(fileOrBlob, "eng", {
     logger: (info) => {
-      if (info.status === "recognizing text" && onProgress) {
+      if (
+        info.status === "recognizing text" &&
+        typeof onProgress === "function"
+      ) {
         onProgress(Math.round(info.progress * 100));
       }
     },
   });
 
-  return result.data.text;
+  // Safety: always return a string
+  return result?.data?.text || "";
 }

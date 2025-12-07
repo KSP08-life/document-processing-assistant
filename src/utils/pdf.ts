@@ -1,8 +1,8 @@
 import * as pdfjsLib from "pdfjs-dist";
 import pdfWorker from "pdfjs-dist/build/pdf.worker?url";
 
-// Required for Vite
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
+// In some setups TS complains about this line; cast GlobalWorkerOptions to any
+(pdfjsLib as any).GlobalWorkerOptions.workerSrc = pdfWorker;
 
 export async function extractImagesFromPDF(file: File): Promise<Blob[]> {
   const arrayBuffer = await file.arrayBuffer();
@@ -19,13 +19,17 @@ export async function extractImagesFromPDF(file: File): Promise<Blob[]> {
     canvas.width = viewport.width;
     canvas.height = viewport.height;
 
-    await page.render({
+    // 👇 TypeScript fix: include `canvas` and cast to any to satisfy `RenderParameters`
+    const renderTask = page.render({
       canvasContext: context,
       viewport,
-    }).promise;
+      canvas,
+    } as any);
+
+    await renderTask.promise;
 
     const blob: Blob = await new Promise((resolve) =>
-      canvas.toBlob((b) => resolve(b!), "image/png")
+      canvas.toBlob((b) => resolve(b as Blob), "image/png")
     );
 
     images.push(blob);
