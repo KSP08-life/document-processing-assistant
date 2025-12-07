@@ -2,6 +2,7 @@ import { useState } from "react";
 import { runOCR } from "./utils/ocr";
 import { classifyDocument } from "./utils/classifier";
 import { extractMetadata } from "./utils/extractors";
+import { extractImagesFromPDF } from "./utils/pdf";
 
 function App() {
   const [loading, setLoading] = useState(false);
@@ -24,21 +25,61 @@ function App() {
     setLoading(true);
 
     try {
-      const text = await runOCR(file, setProgress);
-      setExtractedText(text);
+      let fullText = "";
 
-      const result = classifyDocument(text);
+      // ✅ PDF SUPPORT
+      if (file.type === "application/pdf") {
+        const images = await extractImagesFromPDF(file);
+
+        for (let i = 0; i < images.length; i++) {
+          const pageText = await runOCR(images[i], (p) =>
+            setProgress(Math.round(((i + p / 100) / images.length) * 100))
+          );
+          fullText += "\n" + pageText;
+        }
+      } else {
+        fullText = await runOCR(file, setProgress);
+      }
+
+      setExtractedText(fullText);
+
+      const result = classifyDocument(fullText);
       setDocType(result.type);
       setConfidence(result.confidence);
-
-      const data = extractMetadata(result.type, text);
-      setMetadata(data);
+      setMetadata(extractMetadata(result.type, fullText));
     } catch (err) {
       console.error(err);
-      alert("OCR or classification failed");
+      alert("Image/PDF processing failed");
     } finally {
       setLoading(false);
     }
+  }
+
+  /* ===== DOWNLOAD HELPERS ===== */
+
+  function downloadJSON() {
+    const blob = new Blob([JSON.stringify(metadata, null, 2)], {
+      type: "application/json",
+    });
+    triggerDownload(blob, "metadata.json");
+  }
+
+  function downloadCSV() {
+    const rows = Object.entries(metadata).map(
+      ([key, value]) => `"${key}","${String(value).replace(/"/g, '""')}"`
+    );
+    const csv = ["Field,Value", ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    triggerDownload(blob, "metadata.csv");
+  }
+
+  function triggerDownload(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   return (
@@ -66,18 +107,9 @@ function App() {
 
           {/* Features */}
           <section className="grid gap-4 md:grid-cols-3">
-            <Feature
-              title="OCR Processing"
-              desc="Extract text from images using advanced OCR technology."
-            />
-            <Feature
-              title="Smart Classification"
-              desc="Automatically identify invoices, IDs, certificates and forms."
-            />
-            <Feature
-              title="Metadata Extraction"
-              desc="Extract structured data specific to each document type."
-            />
+            <Feature title="OCR Processing" desc="Extract text from images and PDFs using OCR." />
+            <Feature title="Smart Classification" desc="Automatically identify invoices, IDs, certificates and forms." />
+            <Feature title="Metadata Extraction" desc="Extract structured data specific to each document type." />
           </section>
 
           {/* Upload */}
@@ -85,19 +117,19 @@ function App() {
             <label className="cursor-pointer block">
               <input
                 type="file"
-                accept="image/*"
+                accept="image/*,.pdf"
                 className="hidden"
                 onChange={handleFileUpload}
               />
               <div className="text-4xl mb-2">⬆️</div>
               <h2 className="text-lg font-semibold">Upload Document</h2>
               <p className="text-sm text-slate-600 mt-1">
-                Click to upload an image (PNG, JPG, JPEG)
+                Images (PNG, JPG) and PDF supported
               </p>
             </label>
           </section>
 
-          {/* OCR Progress */}
+          {/* Progress */}
           {loading && (
             <section className="space-y-2">
               <p className="text-sm font-medium">
@@ -120,20 +152,33 @@ function App() {
                 {extractedText}
               </pre>
 
-              <div className="pt-2 border-t space-y-2">
+              <div className="pt-2 border-t space-y-3">
                 <p className="text-sm">
                   <strong>Detected Type:</strong>{" "}
                   <span className="font-semibold">{docType}</span>{" "}
                   ({confidence}% confidence)
                 </p>
 
-                <div>
-                  <h3 className="font-semibold text-sm mb-1">
+                <div className="space-y-3">
+                  <h3 className="font-semibold text-sm">
                     Extracted Metadata
                   </h3>
+
                   <pre className="text-xs bg-slate-50 p-3 rounded whitespace-pre-wrap">
                     {JSON.stringify(metadata, null, 2)}
                   </pre>
+
+                  <div className="flex gap-3">
+                    <button onClick={downloadJSON}
+                      className="px-3 py-1.5 text-xs rounded bg-blue-600 text-white">
+                      Download JSON
+                    </button>
+
+                    <button onClick={downloadCSV}
+                      className="px-3 py-1.5 text-xs rounded bg-slate-700 text-white">
+                      Download CSV
+                    </button>
+                  </div>
                 </div>
               </div>
             </section>
